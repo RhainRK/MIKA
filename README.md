@@ -1,263 +1,296 @@
+<div align="center">
+
 # MIKA
 
-**Local evidence intelligence and AI assurance for provenance-aware analysis, hybrid retrieval and auditable investigations.**
+### Model Integrity & Knowledge Analysis
 
-MIKA is a local-first evidence analysis system built for working with operational records, structured datasets and investigation material while keeping retrieval, permissions, provenance and audit controls outside the language model.
+**Local evidence intelligence, investigation tooling and AI assurance**
 
-It combines deterministic information retrieval with optional local AI-assisted analysis. Evidence is ingested with source provenance, indexed for lexical and semantic search, checked for suspicious prompt-injection content and made available through a CLI or browser-based analyst console.
+`v1.6.0`
 
-The language model is optional. Core functions such as ingestion, retrieval, authorization, case management, provenance tracking, evidence filtering and audit verification run independently of model generation.
+Python · FastAPI · SQLite · TypeScript · NumPy · Ollama
 
-Current release: **v1.4.0**
+[GitHub Repository](https://github.com/RhainRK/MIKA)
 
----
+</div>
 
-## Overview
+<br>
 
-MIKA is designed around a simple principle:
+> **The model should help with analysis. It should never be the thing you have to blindly trust.**
 
-> The language model should not be the trusted component of an analytical system.
+MIKA is a local evidence analysis system I built for working with documents, structured datasets and investigation material.
 
-Instead of giving an LLM unrestricted access to files, tools and external services, MIKA separates deterministic system controls from generated analysis.
+The main idea is pretty simple.
 
-MIKA handles:
+You should be able to search evidence, build cases, trace where information came from and optionally use AI to help analyse it without giving the model control over the system.
 
-* evidence ingestion and provenance;
-* hybrid lexical and semantic retrieval;
-* source and evidence filtering;
-* case management;
-* citation tracking;
-* entity resolution;
-* relationship analysis;
-* structured-data profiling;
-* constrained tool execution;
-* prompt-injection quarantine;
-* tamper-evident audit logging;
-* retrieval evaluation and regression testing;
-* optional local-LLM synthesis.
+MIKA keeps retrieval, permissions, provenance, tool access and audit controls outside the language model.
 
-This makes MIKA useful as both an evidence-analysis application and an experimental platform for building safer retrieval-augmented AI systems.
+The AI layer is optional.
 
----
+The evidence system is not.
 
-## Design
+## What MIKA actually does
 
-MIKA is built around several independent layers.
+Think of MIKA as an investigation workspace with an AI layer attached to it.
+
+You can give it evidence such as documents or structured data and then use it to:
+
+* search across evidence
+* find exact identifiers
+* find semantically related information
+* trace results back to their original source
+* organise evidence into cases
+* record findings and supporting evidence
+* compare possible explanations
+* map relationships between entities
+* profile structured datasets
+* inspect suspicious imported content
+* use a local model to analyse selected evidence
+* check whether generated citations actually exist
+* control which tools the model is allowed to use
+* keep an audit trail of important actions
+* measure retrieval quality and latency
+
+MIKA can work without a language model at all.
+
+Retrieval, ingestion, cases, provenance, authorization, evaluation and the analyst interface all work independently.
+
+## Why I built it
+
+A lot of AI systems work roughly like this:
 
 ```text
-                         +---------------------+
-                         |     Source Data     |
-                         +----------+----------+
-                                    |
-                                    v
-                         +---------------------+
-                         |      Ingestion      |
-                         | provenance + hashes |
-                         +----------+----------+
-                                    |
-                                    v
-                       +-------------------------+
-                       | Injection / Trust Check |
-                       +-----------+-------------+
-                                   |
-                 +-----------------+-----------------+
-                 |                                   |
-                 v                                   v
-         Trusted Evidence                    Quarantined Evidence
-                 |                          excluded by default
-                 |
-                 v
-       +----------------------+
-       | SQLite Chunk Store   |
-       | FTS5 + Provenance    |
-       +----------+-----------+
-                  |
-        +---------+---------+
-        |                   |
-        v                   v
-+---------------+   +----------------+
-| Lexical Search|   | Semantic Search|
-| FTS5 / BM25   |   | embeddings     |
-+-------+-------+   +--------+-------+
-        |                    |
-        +---------+----------+
-                  |
-                  v
-       +----------------------+
-       | Reciprocal Rank      |
-       | Fusion + ID Boosting |
-       +----------+-----------+
-                  |
-                  v
-       +----------------------+
-       | Evidence Selection   |
-       | sources/cases/chunks |
-       +----------+-----------+
-                  |
-          +-------+-------+
-          |               |
-          v               v
-   Case Analysis      Local LLM
-   Findings           optional
-   Evidence           grounded output
-   Reports                  |
-          |                 v
-          |         Citation Validation
-          |                 |
-          +--------+--------+
-                   |
-                   v
-             Analyst Output
-
-Tool request
-     |
-     v
-Policy + typed schema
-     |
-     v
-Authorized execution
-     |
-     v
-Audit chain
+Documents
+    ↓
+Language Model
+    ↓
+Answer
 ```
 
-The detailed architecture is documented in [`docs/architecture.md`](docs/architecture.md).
+That is useful until you need to answer questions like:
 
----
+```text
+Where did this claim come from?
 
-## Core Features
+Was this actually in the evidence?
 
-### Provenance-aware ingestion
+Did the model invent that citation?
 
-MIKA records where evidence came from rather than treating imported text as an anonymous knowledge base.
+Why was this result ranked first?
 
-Sources and chunks are associated with:
+What files did the model have access to?
 
-* source identifiers;
-* SHA-256 fingerprints;
-* chunk identifiers;
-* import metadata;
-* quarantine state;
-* source-level inventory information.
+Was that tool even allowed to run?
 
-Unchanged evidence can be imported again without replacing existing chunk IDs.
+Can I reproduce the same analysis later?
+```
 
-This is important because cases, findings and citations may already reference those chunks. Stable identifiers prevent routine re-imports from silently breaking historical evidence references.
+MIKA is built around making those questions easier to answer.
 
----
+The system looks more like this:
 
-### Source register
+```text
+                    SOURCE DATA
+                         │
+                         ▼
+                  ┌─────────────┐
+                  │  INGESTION  │
+                  └──────┬──────┘
+                         │
+                provenance + hashes
+                         │
+                         ▼
+                  ┌─────────────┐
+                  │ TRUST CHECK │
+                  └──────┬──────┘
+                         │
+             ┌───────────┴───────────┐
+             │                       │
+             ▼                       ▼
 
-v1.4.0 adds a dedicated source register for inspecting the material currently stored in MIKA.
+       TRUSTED EVIDENCE        QUARANTINED DATA
+             │
+             ▼
+       ┌───────────────┐
+       │ SQLITE STORE  │
+       │ FTS5 + chunks │
+       └───────┬───────┘
+               │
+        ┌──────┴──────┐
+        │             │
+        ▼             ▼
 
-The register exposes information including:
+   LEXICAL SEARCH   SEMANTIC SEARCH
+     FTS5 / BM25       embeddings
 
-* source identity;
-* source fingerprint;
-* number of chunks;
-* import count;
-* quarantine state;
-* source metadata.
+        │             │
+        └──────┬──────┘
+               ▼
 
-Absolute workspace paths are not exposed through the browser interface.
+        RECIPROCAL RANK
+             FUSION
+               │
+               ▼
+       EVIDENCE SELECTION
+               │
+       ┌───────┴────────┐
+       │                │
+       ▼                ▼
 
-CLI examples:
+   CASE WORKFLOW     LOCAL MODEL
+                         optional
+       │                │
+       │                ▼
+       │          citation checking
+       │                │
+       └────────┬───────┘
+                ▼
+
+          ANALYST OUTPUT
+```
+
+The language model sits near the end of the pipeline.
+
+Not at the centre of the trust model.
+
+## Core system
+
+### Evidence ingestion
+
+MIKA stores provenance alongside imported evidence instead of turning everything into an anonymous text collection.
+
+Evidence can retain information including:
+
+* source identifiers
+* SHA 256 fingerprints
+* chunk identifiers
+* import metadata
+* quarantine state
+* source inventory information
+
+Unchanged evidence can be imported again while preserving existing chunk references.
+
+That matters because cases and findings may already reference those chunks.
+
+A normal reimport should not silently break previous analysis.
+
+## Source register
+
+MIKA keeps a register of imported sources.
+
+You can inspect information such as:
+
+* source identity
+* source fingerprint
+* chunk count
+* import count
+* quarantine state
+* metadata
 
 ```bash
 mika sources
+```
+
+Inspect a source:
+
+```bash
 mika source 1
 ```
 
----
+The browser interface does not expose absolute workspace paths.
 
-### Hybrid retrieval
+## Hybrid retrieval
 
-MIKA combines lexical and semantic retrieval.
+MIKA uses two different approaches to search.
 
-Lexical search uses:
+### Lexical retrieval
 
-* SQLite FTS5;
-* BM25 ranking;
-* exact structured-identifier handling.
+Useful when the exact wording matters.
+
+Built around:
+
+* SQLite FTS5
+* BM25 ranking
+* structured identifier handling
+
+### Semantic retrieval
+
+Useful when the query and source mean similar things but use different wording.
 
 Semantic retrieval uses local embeddings and vector similarity.
 
-The two result sets are combined using **Reciprocal Rank Fusion (RRF)**.
+The two result sets are combined using **Reciprocal Rank Fusion**.
 
-This allows MIKA to handle both:
+```text
+Exact wording               Similar meaning
+     │                            │
+     ▼                            ▼
+ FTS5 / BM25                 embeddings
+     │                            │
+     └────────────┬───────────────┘
+                  ▼
+                 RRF
+                  │
+                  ▼
+             final ranking
+```
 
-* exact identifiers such as `CASE-1042`, account numbers or technical terms;
-* natural-language queries where wording differs from the source material.
+This means MIKA can deal with both natural language questions and exact identifiers such as:
 
-Exact structured identifiers receive additional ranking treatment so a semantically similar document does not displace an exact record match.
+```text
+CASE 1042
+ACC 00831
+INV 9214
+```
 
----
+Exact identifiers receive additional ranking treatment so a vaguely similar result should not replace an exact record match.
 
-### Selected-evidence search
+## Search only what matters
 
-Search does not always need to run across the entire evidence store.
+Sometimes searching every document is the wrong thing to do.
 
-MIKA v1.4.0 can restrict retrieval to selected:
+MIKA can limit retrieval to selected:
 
-* sources;
-* chunk IDs;
-* case evidence.
+* sources
+* evidence chunks
+* case evidence
 
-Examples:
+For example:
 
 ```bash
 mika search "reconciliation anomaly" --source 1
 ```
 
+or:
+
 ```bash
 mika search "payment discrepancy" --case case_xxxxxxxxxxxx
 ```
 
-This is particularly useful during investigations where an analyst wants the retrieval system to reason only over an approved evidence set.
+This is useful when analysis should only use a deliberately approved evidence set.
 
----
+## Case workspace
 
-### Bounded-memory semantic retrieval
+MIKA includes a case workflow for turning retrieved evidence into something more structured.
 
-Earlier MIKA builds could assemble larger intermediate embedding structures during retrieval.
+A case can hold:
 
-v1.4.0 changes semantic search to operate in bounded batches and maintain only the current best candidates required for top-k selection.
+```text
+Objective
+   │
+   ├── Evidence
+   │
+   ├── Findings
+   │
+   ├── Confidence
+   │
+   ├── Alternatives
+   │
+   └── Limitations
+```
 
-The new path also detects and repairs invalid embedding records when possible, including:
-
-* corrupt vectors;
-* stale dimensions;
-* non-finite values;
-* missing embeddings.
-
-In a synthetic 12,000-chunk comparison used during the v1.4.0 release review, measured peak Python allocation fell from approximately **49.3 MiB to 1.51 MiB**.
-
-That is roughly a **96.9% reduction** in that specific test environment.
-
-The same comparison measured query time at approximately:
-
-* v1.3.2 path: `0.277 s`
-* v1.4.0 path: `0.209 s`
-
-These numbers are regression measurements from one build environment, not general production-performance guarantees.
-
----
-
-## Case Management
-
-MIKA includes an evidence-backed case workflow.
-
-Cases can contain:
-
-* an investigation title;
-* an objective;
-* registered evidence;
-* findings;
-* confidence values;
-* alternatives;
-* limitations.
-
-Create a case:
+Create one:
 
 ```bash
 mika case-create "Reconciliation Investigation" --objective "Identify the cause of the reported ledger mismatch"
@@ -275,66 +308,76 @@ Attach evidence:
 mika case-attach case_xxxxxxxxxxxx 12 13 18
 ```
 
-Record a finding:
+Add a finding:
 
 ```bash
 mika case-finding case_xxxxxxxxxxxx \
-  "The discrepancy is associated with the settlement batch." \
-  --confidence 0.86 \
-  --evidence 12 18
+"The discrepancy is associated with the settlement batch." \
+--confidence 0.86 \
+--evidence 12 18
 ```
 
-Export a report:
+Export the case:
 
 ```bash
 mika case-report case_xxxxxxxxxxxx
 ```
 
-The analyst dashboard provides the same workflow through a browser interface.
+The browser interface supports the same general workflow.
 
----
+## Findings stay attached to evidence
 
-## Evidence-backed findings
+A finding can include:
 
-Findings can reference specific evidence chunks.
+* supporting evidence
+* confidence
+* alternative explanations
+* limitations
 
-In v1.4.0, evidence cited by a finding is automatically registered with the case. This keeps the case's evidence register synchronized with the analytical record.
+This is intentional.
 
-A finding can also retain:
+The point is not to convert an AI answer into a fact.
 
-* alternative explanations;
-* limitations;
-* confidence estimates.
+MIKA keeps the conclusion and the evidence behind it separately reviewable.
 
-The goal is not to turn a model response into a fact automatically. The case structure keeps the conclusion, supporting evidence and uncertainty separately reviewable.
+## Citation validation
 
----
+If the optional local model produces an answer, MIKA checks the citation labels it returns against the evidence that was actually supplied.
 
-## Citation Validation
+That means MIKA can detect cases where a model produces something that looks like:
 
-When the optional local model generates an answer, MIKA checks the citation labels returned by the model against the evidence supplied to it.
+```text
+According to [SOURCE 14] ...
+```
 
-The response includes citation-validation metadata and can identify citation labels that were invented by the model rather than supplied by retrieval.
+when `SOURCE 14` was never part of the retrieved evidence.
 
-This catches a common failure mode in retrieval-augmented generation where an answer appears sourced but references evidence that was never actually retrieved.
+Citation validation does not prove that every sentence is correct.
 
-Citation validation does **not** prove that every generated claim is correct. It verifies the relationship between emitted citation labels and the evidence provided to the model.
+It checks whether the citation actually belongs to the evidence set the model received.
 
-Human review is still required.
+There is still a human at the end of the process.
 
----
+## Entity resolution
 
-## Entity Resolution
+Real datasets are messy.
 
-MIKA includes deterministic entity-resolution tools for matching inconsistent names in structured data.
+The same entity might appear as:
 
-The resolver uses techniques including:
+```text
+Northstar Computing Ltd
+Northstar Computing
+Northstar Comp
+NORTHSTAR COMPUTING LTD.
+```
 
-* Unicode normalization;
-* alias handling;
-* token blocking;
-* weighted fuzzy similarity;
-* explainable match scoring.
+MIKA includes deterministic record matching using techniques such as:
+
+* Unicode normalization
+* alias handling
+* token blocking
+* weighted fuzzy similarity
+* explainable scoring
 
 Example:
 
@@ -342,285 +385,69 @@ Example:
 mika entity-resolve samples/entities.csv "Northstar Comp"
 ```
 
-The output is intended to help an analyst investigate possible matches rather than automatically declare identity.
+The resolver gives the analyst possible matches.
 
----
+It does not automatically decide that two records are definitely the same entity.
 
-## Relationship Analysis
+## Relationship analysis
 
-MIKA can analyse relationship data represented as graph edges.
+MIKA can also work with relationship data.
 
-The graph layer uses adjacency lists and bounded breadth-first search to trace relationships between entities.
-
-Example:
+The graph layer uses adjacency lists and bounded breadth first search to trace paths between entities.
 
 ```bash
 mika graph-path samples/relationships.csv "Maya Chen" "Helios Research Group"
 ```
 
-This can be used to explore:
+This can help explore things like:
 
-* organizational relationships;
-* transaction networks;
-* account ownership;
-* operational dependencies;
-* other structured link data.
+* organisational links
+* transaction relationships
+* ownership
+* operational dependencies
+* account relationships
 
-The implementation is deliberately bounded so a malformed or unexpectedly large graph cannot trigger unlimited traversal.
+The traversal is bounded so unexpectedly large or malformed graphs cannot trigger unlimited exploration.
 
----
+## Data quality
 
-## Data Quality
+Before analysing a dataset, sometimes the most useful thing is simply figuring out whether the data is any good.
 
-CSV datasets can be profiled before analysis.
-
-Example:
+MIKA can profile CSV evidence:
 
 ```bash
 mika profile samples/operations_incidents.csv
 ```
 
-The profiler provides a deterministic first look at structured evidence and can help identify malformed, incomplete or inconsistent records before they are fed into further analysis.
+This provides a deterministic first look at structured evidence before it reaches later stages of analysis.
 
----
+## AI is optional
 
-## Tool Security
+MIKA does not require a model for its core functionality.
 
-Tools are not executed simply because a language model asks for them.
-
-MIKA places a deterministic authorization layer between the model and execution.
-
-A tool must be:
-
-1. registered;
-2. allowed by the active policy;
-3. supplied with arguments that pass its typed schema.
-
-Unknown tools are rejected.
-
-Arguments are validated with Pydantic before the handler executes.
-
-This creates a default-deny model:
+With no LLM enabled you still have:
 
 ```text
-LLM proposes action
-        |
-        v
-Is tool registered?
-        |
-       no -> reject
-        |
-       yes
-        |
-        v
-Is tool permitted?
-        |
-       no -> reject
-        |
-       yes
-        |
-        v
-Validate arguments
-        |
-     invalid -> reject
-        |
-       valid
-        |
-        v
-Execute
+Ingestion
+Retrieval
+Cases
+Provenance
+Source tracking
+Entity resolution
+Relationship analysis
+Evaluation
+Tool authorization
+Audit verification
+Analyst console
 ```
 
-The model itself cannot grant additional permissions.
-
----
-
-## Workspace Confinement
-
-File-backed tools are restricted to the configured workspace.
-
-Path traversal attempts outside that workspace are rejected.
-
-MIKA also includes a bounded read-only SQLite tool. It accepts controlled `SELECT` / `WITH` queries while rejecting operations such as:
-
-* writes;
-* schema modification;
-* database attachment;
-* unsafe pragmas.
-
-This is intended to make local analysis useful without turning the model into an unrestricted database or filesystem interface.
-
----
-
-## Prompt-Injection Handling
-
-Imported evidence is treated as **untrusted data**, not as part of MIKA's system instructions.
-
-Evidence can be scanned for suspicious prompt-injection content and quarantined.
-
-Quarantined chunks are excluded from normal retrieval unless deliberately inspected.
-
-This is defense in depth rather than the main security boundary.
-
-A prompt-injection classifier can miss malicious content. MIKA therefore keeps authorization and tool permissions deterministic even if suspicious text reaches the language model.
-
----
-
-## Audit Logging
-
-MIKA records security-relevant and analytical events in a JSONL audit log.
-
-Audit entries contain:
-
-* event data;
-* the previous record hash;
-* the current record's SHA-256 digest.
-
-This creates a chained log in which modifying or reordering an existing record breaks subsequent verification.
-
-Check the chain with:
-
-```bash
-mika audit-verify
-```
-
-The audit system is **tamper-evident**, not cryptographically immutable. An attacker able to replace the complete log and recompute every hash could create a new internally consistent chain.
-
-Production systems would normally add external integrity anchoring or centralized append-only logging.
-
----
-
-## Database Backups
-
-v1.4.0 introduces an integrated database backup command.
-
-```bash
-mika backup
-```
-
-By default, backups are written under:
-
-```text
-data/backups/
-```
-
-MIKA verifies the SQLite snapshot before replacing the backup destination.
-
-The command can also be invoked as:
-
-```bash
-mika database-backup
-```
-
----
-
-## Schema Migrations
-
-Database schema versions are now tracked.
-
-When an older supported MIKA database is opened by v1.4.0, the required migration runs automatically.
-
-The v1.4 migration adds source-register tracking while preserving existing:
-
-* evidence;
-* cases;
-* findings.
-
-Back up the database before upgrading between releases.
-
----
-
-## Analyst Console
-
-MIKA includes a FastAPI backend and TypeScript analyst interface.
-
-The v1.4.0 console supports:
-
-* hybrid evidence search;
-* source browsing;
-* source-filtered retrieval;
-* case-evidence-filtered retrieval;
-* case review;
-* finding management;
-* Markdown case-report downloads;
-* evaluation information.
-
-Start it with:
-
-```bash
-mika serve --host 127.0.0.1 --port 8000
-```
-
-Then open:
-
-```text
-http://127.0.0.1:8000
-```
-
-MIKA generates a new browser password when the server starts.
-
-Username:
-
-```text
-mika
-```
-
-The password is printed in the terminal.
-
-Stopping the process invalidates that session password.
-
----
-
-## Local-only Web Security Model
-
-The analyst console is designed as a **single-user local application**.
-
-All HTTP routes require authentication.
-
-The service also implements controls including:
-
-* loopback-only binding;
-* peer-address checks;
-* Host validation;
-* Origin validation;
-* Fetch Metadata validation;
-* restricted HTTP methods;
-* request-size limits;
-* rate/resource budgets;
-* disabled public API documentation;
-* disabled proxy-header trust;
-* disabled HTTP access logging;
-* Content Security Policy;
-* frame denial;
-* `no-store` caching policy;
-* referrer restrictions;
-* browser permissions policy;
-* same-origin resource policy.
-
-Do **not** expose the MIKA service through:
-
-* router port forwarding;
-* public interfaces;
-* reverse proxies;
-* public tunnels;
-* internet-facing hosts.
-
-It is not a multi-user web authentication platform.
-
----
-
-## Optional Local LLM
-
-MIKA does not require an LLM for retrieval, cases, evaluation or the analyst interface.
-
-To enable generated analysis:
+If generated analysis is useful, a local Ollama model can be added.
 
 ```bash
 pip install -e ".[llm]"
 ```
 
-MIKA currently supports a local Ollama workflow.
-
-For example:
+Example:
 
 ```bash
 ollama pull qwen3.5:4b
@@ -632,7 +459,7 @@ Then:
 mika ask "What evidence explains the reconciliation anomaly?"
 ```
 
-MIKA restricts configured plaintext model endpoints to literal loopback addresses such as:
+MIKA only allows configured plaintext model endpoints on literal loopback addresses such as:
 
 ```text
 http://127.0.0.1:11434
@@ -640,54 +467,310 @@ http://127.0.0.1:11434
 
 The MIKA client also disables inherited HTTP proxy configuration for model requests.
 
-MIKA cannot control the behaviour, telemetry or network configuration of a separately installed model server. Review that software independently.
+External model software is still external software.
 
----
+MIKA cannot control its telemetry or network behaviour.
 
-## Embeddings
+## Tool security
 
-The default embedding implementation is deterministic and offline.
+One of the parts I care about most in MIKA is that the model does not decide what it is allowed to do.
 
-No trained embedding model is required for the basic installation.
+A requested tool action goes through a deterministic boundary first.
 
-For local semantic models:
-
-```bash
-pip install -e ".[semantic]"
+```text
+MODEL REQUEST
+      │
+      ▼
+Is the tool registered?
+      │
+   no │ yes
+      │
+ reject
+      │
+      ▼
+Is it permitted?
+      │
+   no │ yes
+      │
+ reject
+      │
+      ▼
+Validate arguments
+      │
+ invalid
+      │
+   reject
+      │
+      ▼
+   EXECUTE
 ```
 
-Set `MIKA_EMBEDDING_MODEL` to a trusted **local model path**.
+A tool must be:
 
-Semantic embeddings are optional. FTS5/BM25 retrieval remains available without them.
+1. registered
+2. permitted by policy
+3. called with arguments that pass its typed schema
 
----
+Unknown tools are rejected.
 
-## Public Data Connector
+Arguments are validated with Pydantic before execution.
 
-MIKA includes an allow-listed connector for the official UK FCDO sanctions dataset.
+The model cannot grant itself additional permissions.
+
+## Workspace confinement
+
+File tools are restricted to the configured workspace.
+
+Path traversal attempts outside that workspace are rejected.
+
+MIKA also contains a bounded read only SQLite capability.
+
+It accepts controlled `SELECT` and `WITH` queries while rejecting operations involving:
+
+* writes
+* schema modification
+* database attachment
+* unsafe pragmas
+
+Useful analysis should not require turning the model into an unrestricted filesystem or database user.
+
+## Prompt injection handling
+
+Imported evidence is data.
+
+It is not trusted instruction text.
+
+MIKA can scan evidence for suspicious prompt injection content and quarantine it.
+
+Quarantined chunks are excluded from normal retrieval unless deliberately inspected.
+
+The detection layer is not treated as perfect.
+
+Even if malicious text gets through it, the real security boundary remains the deterministic authorization system.
+
+## Audit trail
+
+MIKA records analytical and security relevant activity in a JSONL audit log.
+
+Each entry includes:
+
+* event data
+* the previous record hash
+* its own SHA 256 digest
+
+That creates a chain where editing or reordering an existing record breaks verification further down the log.
+
+Verify it with:
+
+```bash
+mika audit-verify
+```
+
+This is tamper evident.
+
+It is not magically immutable.
+
+Someone capable of replacing the complete audit log and recomputing the full chain could create a new internally valid log.
+
+A production deployment would normally use external integrity anchoring or central append only logging.
+
+## Local analyst console
+
+MIKA includes a FastAPI backend with a TypeScript browser interface.
+
+The console supports:
+
+* evidence search
+* source browsing
+* source filtered search
+* case evidence search
+* case review
+* finding management
+* Markdown case reports
+* evaluation information
+
+Start it:
+
+```bash
+mika serve --host 127.0.0.1 --port 8000
+```
+
+Then open:
+
+```text
+http://127.0.0.1:8000
+```
+
+MIKA creates a fresh browser password when the server starts.
+
+Username:
+
+```text
+mika
+```
+
+The generated password is printed in the terminal.
+
+Stopping the process invalidates that session password.
+
+## Local web security
+
+The browser console is designed as a **single user local application**.
+
+It is not an internet facing web platform.
+
+Controls include:
+
+* loopback only binding
+* peer address checks
+* Host validation
+* Origin validation
+* Fetch Metadata checks
+* restricted HTTP methods
+* request size limits
+* rate and resource budgets
+* disabled public API documentation
+* disabled proxy header trust
+* disabled HTTP access logging
+* Content Security Policy
+* frame denial
+* no store caching
+* referrer restrictions
+* browser permissions policy
+* same origin resource policy
+
+Do not expose it using:
+
+```text
+Router port forwarding
+Public network interfaces
+Reverse proxies
+Public tunnels
+Internet facing hosts
+```
+
+If MIKA ever becomes a multi user or remotely hosted system, that should be treated as a separate security architecture.
+
+Not as a switch you turn on.
+
+## Public data connector
+
+MIKA includes a deliberately narrow connector for the official UK FCDO sanctions dataset.
 
 ```bash
 mika fetch-uk-sanctions
 ```
 
-The connector is intentionally narrow. Host and endpoint validation prevent it from becoming a general-purpose HTTP client.
+The connector uses host and endpoint restrictions so it cannot quietly become a general purpose HTTP client.
 
-MIKA does not make sanctions, compliance or legal decisions automatically. Results should be reviewed by a human analyst.
+MIKA does not make sanctions, legal or compliance decisions.
 
----
+It gives an analyst evidence to review.
+
+## Evaluation
+
+MIKA includes a synthetic operational retrieval benchmark and regression suite.
+
+Metrics include:
+
+* Precision at k
+* Recall at k
+* Mean Reciprocal Rank
+* nDCG
+* bootstrap confidence intervals
+* latency percentiles
+
+### Published regression baseline
+
+| Check | Result |
+|:--|--:|
+| Python tests | **121 passing** |
+| Python branch coverage | **88%** |
+| Retrieval benchmark | **120 cases** |
+| Recall@5 | **1.000** |
+| MRR | **1.000** |
+| nDCG@5 | **1.000** |
+| Default deny authorization | **Pass** |
+| Unknown tool rejection | **Pass** |
+| Prompt injection quarantine | **Pass** |
+| Audit chain verification | **Pass** |
+| TypeScript typecheck | **Pass** |
+| TypeScript build | **Pass** |
+
+These figures are regression measurements from the bundled synthetic benchmark.
+
+They are there to catch engineering regressions.
+
+They are not a claim that MIKA achieves perfect accuracy on arbitrary real world investigations.
+
+Evaluation results and dataset fingerprints are stored in:
+
+```text
+reports/evaluation-results.json
+```
+
+## A simple MIKA workflow
+
+```text
+01  IMPORT
+        │
+        ▼
+    evidence enters MIKA
+
+02  VERIFY
+        │
+        ▼
+    provenance and trust checks
+
+03  SEARCH
+        │
+        ▼
+    lexical + semantic retrieval
+
+04  NARROW
+        │
+        ▼
+    choose approved evidence
+
+05  INVESTIGATE
+        │
+        ▼
+    entities, relationships, data quality
+
+06  BUILD CASE
+        │
+        ▼
+    evidence + findings + uncertainty
+
+07  ANALYSE
+        │
+        ▼
+    optional local model
+
+08  CHECK
+        │
+        ▼
+    citations + audit trail
+
+09  EXPORT
+        │
+        ▼
+    reviewable case report
+```
 
 ## Installation
 
 ### Requirements
 
-* Python **3.11+**
-* Node.js/npm if rebuilding the analyst console
+* Python 3.11+
+* Node.js and npm if rebuilding the browser interface
 * Ollama only if using local generated analysis
 
-Clone or extract the project and enter the repository:
+Clone the project:
 
 ```bash
-cd MIKA_v1.4.0
+git clone https://github.com/RhainRK/MIKA.git
+cd MIKA
 ```
 
 Create a virtual environment:
@@ -696,45 +779,39 @@ Create a virtual environment:
 python -m venv .venv
 ```
 
-Linux/macOS:
-
-```bash
-source .venv/bin/activate
-```
-
-Windows PowerShell:
+### Windows PowerShell
 
 ```powershell
 .\.venv\Scripts\Activate.ps1
 ```
 
+### Linux and macOS
+
+```bash
+source .venv/bin/activate
+```
+
 Install MIKA:
 
 ```bash
-pip install --upgrade pip setuptools
+python -m pip install --upgrade pip setuptools
 pip install -e ".[server]"
 ```
 
-Check the installation:
+Check it:
 
 ```bash
 mika --version
 mika doctor
 ```
 
-Expected version:
+Expected release:
 
 ```text
-MIKA 1.4.0
+MIKA 1.6.0
 ```
 
-A complete Windows installation guide is available in [`WINDOWS_SETUP.md`](WINDOWS_SETUP.md).
-
----
-
-## Build the Dashboard
-
-Install the locked frontend dependencies:
+## Build the dashboard
 
 ```bash
 cd dashboard
@@ -744,113 +821,97 @@ npm run build
 cd ..
 ```
 
-Start MIKA:
+Run MIKA:
 
 ```bash
 mika serve --host 127.0.0.1 --port 8000
 ```
 
----
+## First five commands
 
-## Basic Workflow
+If you just cloned MIKA and want to see what it does:
 
-Ingest evidence:
+### 1. Import evidence
 
 ```bash
 mika ingest samples/benchmark_evidence.txt
 ```
 
-```bash
-mika ingest samples/operations_incidents.csv
-```
-
-Inspect registered sources:
+### 2. See registered sources
 
 ```bash
 mika sources
 ```
 
-Search:
+### 3. Search
 
 ```bash
 mika search "reconciliation anomaly"
 ```
 
-Inspect a source:
-
-```bash
-mika source 1
-```
-
-Create and work with a case:
+### 4. Create a case
 
 ```bash
 mika case-create "Operations Investigation"
-mika cases
 ```
 
-Verify the audit log:
+### 5. Check the audit chain
 
 ```bash
 mika audit-verify
 ```
 
-Back up the database:
+That already gives you most of the core MIKA workflow.
+
+## Database backups
+
+Create a verified SQLite backup:
 
 ```bash
 mika backup
 ```
 
-Run the evaluation suite:
-
-```bash
-mika evaluate --repeats 20
-```
-
----
-
-## Evaluation
-
-MIKA includes deterministic retrieval and security regression tests.
-
-Retrieval metrics include:
-
-* Precision@k;
-* Recall@k;
-* Mean Reciprocal Rank;
-* nDCG;
-* bootstrap confidence intervals;
-* retrieval latency percentiles.
-
-The repository includes a synthetic 120-case operational retrieval benchmark.
-
-Current v1.4.0 baseline:
-
-| Check                       | Result      |
-| --------------------------- | ----------- |
-| Python tests                | 121 passing |
-| Python branch coverage      | 88%         |
-| Operations benchmark        | 120 cases   |
-| Recall@5                    | 1.000       |
-| MRR                         | 1.000       |
-| nDCG@5                      | 1.000       |
-| Default-deny authorization  | Pass        |
-| Unknown-tool rejection      | Pass        |
-| Prompt-injection quarantine | Pass        |
-| Audit-chain verification    | Pass        |
-| TypeScript typecheck        | Pass        |
-| TypeScript build            | Pass        |
-| Release publication check   | Pass        |
-
-The bundled benchmark is synthetic and exists to detect engineering regressions. It should not be interpreted as proof of real-world accuracy.
-
-Evaluation output and fingerprints are stored in:
+Default location:
 
 ```text
-reports/evaluation-results.json
+data/backups/
 ```
 
----
+MIKA verifies the SQLite snapshot before replacing the backup destination.
+
+## Database migrations
+
+MIKA tracks database schema versions.
+
+Supported older databases can be migrated while preserving existing:
+
+* evidence
+* cases
+* findings
+
+Back up the database before upgrading between releases.
+
+## Embeddings
+
+The basic MIKA install includes deterministic offline embedding behaviour.
+
+A trained semantic model is optional.
+
+For local semantic models:
+
+```bash
+pip install -e ".[semantic]"
+```
+
+Then point:
+
+```text
+MIKA_EMBEDDING_MODEL
+```
+
+to a trusted local model path.
+
+FTS5 and BM25 remain available without semantic embeddings.
 
 ## Development
 
@@ -860,38 +921,40 @@ Install development dependencies:
 pip install -e ".[dev,server]"
 ```
 
-Run the Python test suite:
+Run tests:
 
 ```bash
 pytest -q
 ```
 
-Run coverage:
+Coverage:
 
 ```bash
 pytest --cov=mika --cov-branch --cov-fail-under=82 -q
 ```
 
-Run Ruff:
+Linting:
 
 ```bash
 ruff check .
 ruff format --check .
 ```
 
-Run mypy:
+Typing:
 
 ```bash
 mypy mika
 ```
 
-Run Bandit:
+Security checks:
 
 ```bash
 bandit -r mika
+pip-audit
+npm audit --prefix dashboard
 ```
 
-Run the release checker:
+Release checks:
 
 ```bash
 python scripts/release_check.py
@@ -904,147 +967,85 @@ npm run --prefix dashboard typecheck
 npm run --prefix dashboard build
 ```
 
-Dependency audits:
-
-```bash
-pip-audit
-```
-
-```bash
-npm audit --prefix dashboard
-```
-
-CI runs the relevant formatting, typing, security, test and build gates automatically.
+CI runs the relevant formatting, typing, security, test and build checks automatically.
 
 Dependabot is configured for Python, npm and GitHub Actions dependencies.
 
----
+## Security philosophy
 
-## What's New in v1.4.0
-
-v1.4.0 expands MIKA from a retrieval-focused assurance system into a more complete evidence workspace.
-
-### Provenance and sources
-
-* Added a dedicated source register.
-* Added source metadata and chunk inventory inspection.
-* Added import-count tracking.
-* Repeat ingestion of unchanged evidence now preserves chunk IDs.
-* Existing case and finding references remain valid across unchanged re-imports.
-
-### Retrieval
-
-* Added source-filtered search.
-* Added chunk-filtered search.
-* Added case-evidence-filtered search.
-* Reworked semantic retrieval around bounded batches.
-* Added bounded top-k selection.
-* Added recovery for corrupt, stale and non-finite embeddings.
-* Improved numeric and structured-identifier retrieval behaviour.
-
-### Cases
-
-* Expanded case review workflows.
-* Findings automatically register cited evidence with their case.
-* Added downloadable Markdown case reports.
-* Added stronger evidence selection throughout the analyst workflow.
-
-### Local-model analysis
-
-* Added citation-validation metadata.
-* Added detection of invented citation labels.
-* Preserved deterministic controls outside model generation.
-
-### Storage
-
-* Added tracked database schema migrations.
-* Added integrity-checked database backups.
-* Added migration and backup regression coverage.
-
-### Analyst console
-
-* Added source browsing.
-* Added source-filtered retrieval controls.
-* Added case-evidence search.
-* Expanded case review.
-* Added report downloads.
-
-### Reliability and testing
-
-* Expanded the regression suite to **121 tests**.
-* Added migration tests.
-* Added database-backup tests.
-* Added repeat-import provenance tests.
-* Added corrupt-embedding recovery tests.
-* Added quarantine regression tests.
-* Added selected-evidence tests.
-* Added citation-hallucination tests.
-* Added large-corpus bounded-memory retrieval testing.
-
----
-
-## Security
-
-MIKA is designed around:
-
-* least privilege;
-* complete mediation;
-* explicit authorization;
-* typed boundaries;
-* provenance;
-* reviewability;
-* local-first operation.
-
-The project has regression coverage for threats including:
-
-* implicit permission regression;
-* unregistered tool invocation;
-* malformed tool arguments;
-* filesystem traversal;
-* SQLite modification attempts;
-* prompt-injection content;
-* quarantine bypass;
-* audit-log modification;
-* connector host substitution;
-* unauthorized HTTP requests.
-
-See [`SECURITY.md`](SECURITY.md) and [`SECURITY_REVIEW.md`](SECURITY_REVIEW.md) for the complete security model and release review.
-
----
-
-## Security Boundaries
-
-MIKA should not be treated as an internet-facing production service.
-
-Important limitations include:
-
-* browser authentication is designed for local single-user operation;
-* evidence databases are not application-encrypted;
-* a compromised operating-system account can access local files;
-* an administrator can access the application state;
-* malicious browser extensions may access browser content;
-* audit chaining is tamper-evident rather than externally signed;
-* prompt-injection detection is heuristic;
-* generated analysis still requires human evidence review;
-* CLI role selection is not OS-level identity authentication;
-* MIKA cannot control the telemetry or network behaviour of external software such as Ollama;
-* dependency scans do not replace OS, Python runtime or native-library security maintenance.
-
-Do not place highly sensitive information into MIKA without first assessing whether the host system and storage controls are appropriate for that data.
-
----
-
-## Project Structure
+MIKA is built around a few rules I try not to compromise on.
 
 ```text
-MIKA_v1.4.0/
+Least privilege
+
+Explicit authorization
+
+Typed boundaries
+
+Evidence provenance
+
+Reviewable decisions
+
+Local operation by default
+
+The model is not the security boundary
+```
+
+Regression coverage includes scenarios involving:
+
+* implicit permission changes
+* unknown tool invocation
+* malformed tool arguments
+* filesystem traversal
+* SQLite modification attempts
+* prompt injection
+* quarantine bypass
+* audit log modification
+* connector host substitution
+* unauthorized HTTP requests
+
+More detail lives in:
+
+```text
+SECURITY.md
+SECURITY_REVIEW.md
+```
+
+## Known boundaries
+
+MIKA is still an engineering and research project.
+
+Things worth being clear about:
+
+* the browser authentication model is for local single user use
+* evidence databases are not application encrypted
+* someone with access to the operating system account may access local files
+* an administrator can access application state
+* malicious browser extensions can potentially access browser content
+* the audit chain is tamper evident rather than externally signed
+* prompt injection detection is heuristic
+* generated analysis still needs human review
+* CLI role selection is not operating system identity authentication
+* MIKA cannot control external software such as Ollama
+* dependency scanning does not replace keeping the operating system and runtime secure
+
+Do not put highly sensitive data into MIKA without first deciding whether the host machine and storage environment are appropriate for it.
+
+## Project structure
+
+```text
+MIKA/
+│
 ├── dashboard/
 │   ├── src/
 │   ├── dist/
 │   └── package.json
+│
 ├── data/
+│
 ├── docs/
 │   └── adr/
+│
 ├── mika/
 │   ├── connectors/
 │   ├── evaluation/
@@ -1063,11 +1064,13 @@ MIKA_v1.4.0/
 │   ├── security.py
 │   ├── storage.py
 │   └── telemetry.py
+│
 ├── benchmarks/
 ├── reports/
 ├── samples/
 ├── scripts/
 ├── tests/
+│
 ├── CHANGELOG.md
 ├── CONTRIBUTING.md
 ├── SECURITY.md
@@ -1077,56 +1080,103 @@ MIKA_v1.4.0/
 └── pyproject.toml
 ```
 
----
-
 ## Documentation
 
-Additional documentation:
+More detail is split into the project docs so this README does not have to explain every internal decision.
 
-* [`docs/architecture.md`](docs/architecture.md) — system architecture
-* [`docs/evaluation.md`](docs/evaluation.md) — evaluation methodology
-* [`docs/case-study.md`](docs/case-study.md) — example operational workflow
-* [`docs/public-data.md`](docs/public-data.md) — public-data connector
-* [`docs/references.md`](docs/references.md) — design references
-* [`docs/regression-baseline.md`](docs/regression-baseline.md) — benchmark baseline
-* [`SECURITY.md`](SECURITY.md) — security architecture
-* [`SECURITY_REVIEW.md`](SECURITY_REVIEW.md) — v1.4.0 review
-* [`WINDOWS_SETUP.md`](WINDOWS_SETUP.md) — Windows installation
-* [`WINDOWS_UPGRADE.md`](WINDOWS_UPGRADE.md) — upgrade instructions
-* [`CHANGELOG.md`](CHANGELOG.md) — release history
-* [`CONTRIBUTING.md`](CONTRIBUTING.md) — development workflow
+| Document | What it covers |
+|:--|:--|
+| `docs/architecture.md` | System architecture |
+| `docs/evaluation.md` | Evaluation methodology |
+| `docs/case-study.md` | Example investigation workflow |
+| `docs/public-data.md` | Public data connector |
+| `docs/references.md` | Design references |
+| `docs/regression-baseline.md` | Benchmark baseline |
+| `SECURITY.md` | Security architecture |
+| `SECURITY_REVIEW.md` | Security review |
+| `WINDOWS_SETUP.md` | Windows installation |
+| `WINDOWS_UPGRADE.md` | Upgrade process |
+| `CHANGELOG.md` | Release history |
+| `CONTRIBUTING.md` | Development workflow |
 
----
+## Where I want to take it
 
-## Roadmap
+MIKA is already useful as a local investigation and assurance environment, but there is a lot more I want to explore.
 
-Areas for future development include:
+Some directions I am interested in:
 
-* larger-corpus vector indexing;
-* stronger labelled entity-resolution evaluation;
-* richer case timelines;
-* evidence comparison and contradiction detection;
-* additional deterministic analysis tools;
-* improved document-format ingestion;
-* expanded retrieval evaluation datasets;
-* stronger external audit anchoring;
-* optional multi-user architecture separated from the current local runtime;
-* further adversarial testing of retrieval and model-grounding behaviour.
+```text
+larger evidence collections
 
-Any future network or multi-user deployment should be treated as a separate security architecture rather than an extension of the current local server configuration.
+better document ingestion
 
----
+richer investigation timelines
+
+contradiction detection
+
+evidence comparison
+
+stronger entity evaluation
+
+more deterministic analysis tools
+
+better retrieval benchmarks
+
+external audit anchoring
+
+stronger adversarial testing
+
+better analyst visualisation
+```
+
+Longer term I am also interested in what a separate multi user architecture could look like.
+
+That would need a proper security design of its own.
+
+I do not want to turn the local server into an internet service by slowly removing the restrictions that currently make it safe.
+
+## Design principle
+
+If I had to reduce MIKA to one idea, it would be this:
+
+```text
+Use AI for the part AI is good at.
+
+Do not make AI responsible for the parts that need to be trusted.
+```
+
+Retrieval should be measurable.
+
+Permissions should be explicit.
+
+Evidence should have provenance.
+
+Important actions should be auditable.
+
+Generated analysis should be reviewable.
+
+And the user should always be able to get back to the source.
 
 ## License
 
-MIKA is released under the **MIT License**.
+MIKA is released under the MIT License.
 
-See [`LICENSE`](LICENSE).
-
----
+See `LICENSE`.
 
 ## Disclaimer
 
 MIKA is an engineering and research project for evidence analysis and AI assurance.
 
-It does not replace professional legal, compliance, financial, security or investigative judgement. Generated analysis and entity matches should be reviewed against the underlying evidence before decisions are made.
+It does not replace professional legal, compliance, financial, security or investigative judgement.
+
+Generated analysis, entity matches and automated findings should always be checked against the underlying evidence before decisions are made.
+
+<div align="center">
+
+### MIKA v1.6.0
+
+**Evidence first. Models second.**
+
+[github.com/RhainRK/MIKA](https://github.com/RhainRK/MIKA)
+
+</div>
