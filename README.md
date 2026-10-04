@@ -1,1182 +1,148 @@
-<div align="center">
+<p align="center"> <picture> <source media="(prefers-color-scheme: dark)" srcset="docs/img/mika-logo-dark.svg"> <img src="docs/img/mika-logo-light.svg" alt="MIKA" width="220"> </picture> </p>
+MIKA
+A sanctions and risk monitor for a real investment portfolio. It tells you what you're exposed to, what changed since you last looked, and what would happen if someone new got sanctioned.
 
-# MIKA
+MIKA checks your holdings against the official US (OFAC) and UK sanctions lists. It follows ownership through real corporate parent data, so it catches companies that are blocked because of who owns them, even when their own name is on no list. It reads the news, SEC filings, Reddit and X for events about the companies you hold. Every flag points back to the exact source row that caused it.
 
-### Model Integrity & Knowledge Analysis
+It runs on your own machine. Nothing about your portfolio leaves it unless you switch a source on.
 
-**Local evidence intelligence, investigation tooling and AI assurance**
+The Exposure page: the moon shows the share of portfolio value that needs attention, the panel below lists what changed since the last run, and the detail pane traces a holding back to a sanctioned owner
 
-`v1.6.0`
+The questions it answers
+Am I exposed right now? Each holding is marked Blocked, Needs review or Clear, with the reasons in plain words. On the Exposure page, the lit part of the moon is exactly the share of portfolio value that needs attention. A clean portfolio is a new moon. (The name comes from mikazuki, the Japanese word for a crescent moon.)
 
-Python · FastAPI · SQLite · TypeScript · NumPy · Ollama
+What changed since last time? Every run is saved and compared with the one before. MIKA lists holdings that got worse or better and new list entries that touch your holdings. It also catches flags that picked up new evidence. If OFAC lists a company overnight, the next run shows that company and every holding it owns 50% or more of, in one place.
 
-[GitHub Repository](https://github.com/RhainRK/MIKA)
+What if? mika whatif "Company" reruns the screen as if that party had just been sanctioned. It uses the same rules as the real run, so you see which holdings would fall with it and how much value is at stake. Nothing is saved.
 
-</div>
+Should we buy this? mika check "Company" screens a company before it enters the portfolio. It returns a nonzero exit code when the answer is not Clear, so it can sit in a script.
 
-<br>
+Why ownership matters
+Sanctions reach further than the names on a list. Under the US Treasury's OFAC 50 Percent Rule, a company is blocked when sanctioned parties own 50% or more of it in total, directly or through other blocked companies. Take an example from MIKA's test scenarios (every name in them is made up):
 
-> **The model should help with analysis. It should never be the thing you have to blindly trust.**
+listed person Orsik Velmarov owns 30% of Vorell Energy Partners,
+listed company Quintor Halvane Trading owns another 25%,
+and Vorell owns 70% of Drevik Drilling.
+Neither Vorell nor Drevik is on a list, so a simple name check clears both. But 30% plus 25% is 55%, so Vorell is blocked, and because Vorell is blocked, so is Drevik. MIKA flags both and draws the chain that explains why.
 
-MIKA is a local evidence analysis system I built for working with documents, structured datasets and investigation material.
+Quick start
+You need Python 3.13 or newer. The dashboard comes pre-built.
 
-The main idea is pretty simple.
-
-You should be able to search evidence, build cases, trace where information came from and optionally use AI to help analyse it without giving the model control over the system.
-
-MIKA keeps retrieval, permissions, provenance, tool access and audit controls outside the language model.
-
-The AI layer is optional.
-
-The evidence system is not.
-
-## What MIKA actually does
-
-Think of MIKA as an investigation workspace with an AI layer attached to it.
-
-You can give it evidence such as documents or structured data and then use it to:
-
-* search across evidence
-* find exact identifiers
-* find semantically related information
-* trace results back to their original source
-* organise evidence into cases
-* record findings and supporting evidence
-* compare possible explanations
-* map relationships between entities
-* profile structured datasets
-* inspect suspicious imported content
-* use a local model to analyse selected evidence
-* check whether generated citations actually exist
-* control which tools the model is allowed to use
-* keep an audit trail of important actions
-* measure retrieval quality and latency
-
-MIKA can work without a language model at all.
-
-Retrieval, ingestion, cases, provenance, authorization, evaluation and the analyst interface all work independently.
-
-## Why I built it
-
-A lot of AI systems work roughly like this:
-
-```text
-Documents
-    ↓
-Language Model
-    ↓
-Answer
-```
-
-That is useful until you need to answer questions like:
-
-```text
-Where did this claim come from?
-
-Was this actually in the evidence?
-
-Did the model invent that citation?
-
-Why was this result ranked first?
-
-What files did the model have access to?
-
-Was that tool even allowed to run?
-
-Can I reproduce the same analysis later?
-```
-
-MIKA is built around making those questions easier to answer.
-
-The system looks more like this:
-
-```text
-                    SOURCE DATA
-                         │
-                         ▼
-                  ┌─────────────┐
-                  │  INGESTION  │
-                  └──────┬──────┘
-                         │
-                provenance + hashes
-                         │
-                         ▼
-                  ┌─────────────┐
-                  │ TRUST CHECK │
-                  └──────┬──────┘
-                         │
-             ┌───────────┴───────────┐
-             │                       │
-             ▼                       ▼
-
-       TRUSTED EVIDENCE        QUARANTINED DATA
-             │
-             ▼
-       ┌───────────────┐
-       │ SQLITE STORE  │
-       │ FTS5 + chunks │
-       └───────┬───────┘
-               │
-        ┌──────┴──────┐
-        │             │
-        ▼             ▼
-
-   LEXICAL SEARCH   SEMANTIC SEARCH
-     FTS5 / BM25       embeddings
-
-        │             │
-        └──────┬──────┘
-               ▼
-
-        RECIPROCAL RANK
-             FUSION
-               │
-               ▼
-       EVIDENCE SELECTION
-               │
-       ┌───────┴────────┐
-       │                │
-       ▼                ▼
-
-   CASE WORKFLOW     LOCAL MODEL
-                         optional
-       │                │
-       │                ▼
-       │          citation checking
-       │                │
-       └────────┬───────┘
-                ▼
-
-          ANALYST OUTPUT
-```
-
-The language model sits near the end of the pipeline.
-
-Not at the centre of the trust model.
-
-## Core system
-
-### Evidence ingestion
-
-MIKA stores provenance alongside imported evidence instead of turning everything into an anonymous text collection.
-
-Evidence can retain information including:
-
-* source identifiers
-* SHA 256 fingerprints
-* chunk identifiers
-* import metadata
-* quarantine state
-* source inventory information
-
-Unchanged evidence can be imported again while preserving existing chunk references.
-
-That matters because cases and findings may already reference those chunks.
-
-A normal reimport should not silently break previous analysis.
-
-## Source register
-
-MIKA keeps a register of imported sources.
-
-You can inspect information such as:
-
-* source identity
-* source fingerprint
-* chunk count
-* import count
-* quarantine state
-* metadata
-
-```bash
-mika sources
-```
-
-Inspect a source:
-
-```bash
-mika source 1
-```
-
-The browser interface does not expose absolute workspace paths.
-
-## Hybrid retrieval
-
-MIKA uses two different approaches to search.
-
-### Lexical retrieval
-
-Useful when the exact wording matters.
-
-Built around:
-
-* SQLite FTS5
-* BM25 ranking
-* structured identifier handling
-
-### Semantic retrieval
-
-Useful when the query and source mean similar things but use different wording.
-
-Semantic retrieval uses local embeddings and vector similarity.
-
-The two result sets are combined using **Reciprocal Rank Fusion**.
-
-```text
-Exact wording               Similar meaning
-     │                            │
-     ▼                            ▼
- FTS5 / BM25                 embeddings
-     │                            │
-     └────────────┬───────────────┘
-                  ▼
-                 RRF
-                  │
-                  ▼
-             final ranking
-```
-
-This means MIKA can deal with both natural language questions and exact identifiers such as:
-
-```text
-CASE 1042
-ACC 00831
-INV 9214
-```
-
-Exact identifiers receive additional ranking treatment so a vaguely similar result should not replace an exact record match.
-
-## Search only what matters
-
-Sometimes searching every document is the wrong thing to do.
-
-MIKA can limit retrieval to selected:
-
-* sources
-* evidence chunks
-* case evidence
-
-For example:
-
-```bash
-mika search "reconciliation anomaly" --source 1
-```
-
-or:
-
-```bash
-mika search "payment discrepancy" --case case_xxxxxxxxxxxx
-```
-
-This is useful when analysis should only use a deliberately approved evidence set.
-
-## Case workspace
-
-MIKA includes a case workflow for turning retrieved evidence into something more structured.
-
-A case can hold:
-
-```text
-Objective
-   │
-   ├── Evidence
-   │
-   ├── Findings
-   │
-   ├── Confidence
-   │
-   ├── Alternatives
-   │
-   └── Limitations
-```
-
-Create one:
-
-```bash
-mika case-create "Reconciliation Investigation" --objective "Identify the cause of the reported ledger mismatch"
-```
-
-List cases:
-
-```bash
-mika cases
-```
-
-Attach evidence:
-
-```bash
-mika case-attach case_xxxxxxxxxxxx 12 13 18
-```
-
-Add a finding:
-
-```bash
-mika case-finding case_xxxxxxxxxxxx \
-"The discrepancy is associated with the settlement batch." \
---confidence 0.86 \
---evidence 12 18
-```
-
-Export the case:
-
-```bash
-mika case-report case_xxxxxxxxxxxx
-```
-
-The browser interface supports the same general workflow.
-
-## Findings stay attached to evidence
-
-A finding can include:
-
-* supporting evidence
-* confidence
-* alternative explanations
-* limitations
-
-This is intentional.
-
-The point is not to convert an AI answer into a fact.
-
-MIKA keeps the conclusion and the evidence behind it separately reviewable.
-
-## Citation validation
-
-If the optional local model produces an answer, MIKA checks the citation labels it returns against the evidence that was actually supplied.
-
-That means MIKA can detect cases where a model produces something that looks like:
-
-```text
-According to [SOURCE 14] ...
-```
-
-when `SOURCE 14` was never part of the retrieved evidence.
-
-Citation validation does not prove that every sentence is correct.
-
-It checks whether the citation actually belongs to the evidence set the model received.
-
-There is still a human at the end of the process.
-
-## Entity resolution
-
-Real datasets are messy.
-
-The same entity might appear as:
-
-```text
-Northstar Computing Ltd
-Northstar Computing
-Northstar Comp
-NORTHSTAR COMPUTING LTD.
-```
-
-MIKA includes deterministic record matching using techniques such as:
-
-* Unicode normalization
-* alias handling
-* token blocking
-* weighted fuzzy similarity
-* explainable scoring
-
-Example:
-
-```bash
-mika entity-resolve samples/entities.csv "Northstar Comp"
-```
-
-The resolver gives the analyst possible matches.
-
-It does not automatically decide that two records are definitely the same entity.
-
-## Relationship analysis
-
-MIKA can also work with relationship data.
-
-The graph layer uses adjacency lists and bounded breadth first search to trace paths between entities.
-
-```bash
-mika graph-path samples/relationships.csv "Maya Chen" "Helios Research Group"
-```
-
-This can help explore things like:
-
-* organisational links
-* transaction relationships
-* ownership
-* operational dependencies
-* account relationships
-
-The traversal is bounded so unexpectedly large or malformed graphs cannot trigger unlimited exploration.
-
-## Data quality
-
-Before analysing a dataset, sometimes the most useful thing is simply figuring out whether the data is any good.
-
-MIKA can profile CSV evidence:
-
-```bash
-mika profile samples/operations_incidents.csv
-```
-
-This provides a deterministic first look at structured evidence before it reaches later stages of analysis.
-
-## AI is optional
-
-MIKA does not require a model for its core functionality.
-
-With no LLM enabled you still have:
-
-```text
-Ingestion
-Retrieval
-Cases
-Provenance
-Source tracking
-Entity resolution
-Relationship analysis
-Evaluation
-Tool authorization
-Audit verification
-Analyst console
-```
-
-If generated analysis is useful, a local Ollama model can be added.
-
-```bash
-pip install -e ".[llm]"
-```
-
-Example:
-
-```bash
-ollama pull qwen3.5:4b
-```
-
-Then:
-
-```bash
-mika ask "What evidence explains the reconciliation anomaly?"
-```
-
-MIKA only allows configured plaintext model endpoints on literal loopback addresses such as:
-
-```text
-http://127.0.0.1:11434
-```
-
-The MIKA client also disables inherited HTTP proxy configuration for model requests.
-
-External model software is still external software.
-
-MIKA cannot control its telemetry or network behaviour.
-
-## Tool security
-
-One of the parts I care about most in MIKA is that the model does not decide what it is allowed to do.
-
-A requested tool action goes through a deterministic boundary first.
-
-```text
-MODEL REQUEST
-      │
-      ▼
-Is the tool registered?
-      │
-   no │ yes
-      │
- reject
-      │
-      ▼
-Is it permitted?
-      │
-   no │ yes
-      │
- reject
-      │
-      ▼
-Validate arguments
-      │
- invalid
-      │
-   reject
-      │
-      ▼
-   EXECUTE
-```
-
-A tool must be:
-
-1. registered
-2. permitted by policy
-3. called with arguments that pass its typed schema
-
-Unknown tools are rejected.
-
-Arguments are validated with Pydantic before execution.
-
-The model cannot grant itself additional permissions.
-
-## Workspace confinement
-
-File tools are restricted to the configured workspace.
-
-Path traversal attempts outside that workspace are rejected.
-
-MIKA also contains a bounded read only SQLite capability.
-
-It accepts controlled `SELECT` and `WITH` queries while rejecting operations involving:
-
-* writes
-* schema modification
-* database attachment
-* unsafe pragmas
-
-Useful analysis should not require turning the model into an unrestricted filesystem or database user.
-
-## Prompt injection handling
-
-Imported evidence is data.
-
-It is not trusted instruction text.
-
-MIKA can scan evidence for suspicious prompt injection content and quarantine it.
-
-Quarantined chunks are excluded from normal retrieval unless deliberately inspected.
-
-The detection layer is not treated as perfect.
-
-Even if malicious text gets through it, the real security boundary remains the deterministic authorization system.
-
-## Audit trail
-
-MIKA records analytical and security relevant activity in a JSONL audit log.
-
-Each entry includes:
-
-* event data
-* the previous record hash
-* its own SHA 256 digest
-
-That creates a chain where editing or reordering an existing record breaks verification further down the log.
-
-Verify it with:
-
-```bash
-mika audit-verify
-```
-
-This is tamper evident.
-
-It is not magically immutable.
-
-Someone capable of replacing the complete audit log and recomputing the full chain could create a new internally valid log.
-
-A production deployment would normally use external integrity anchoring or central append only logging.
-
-## Local analyst console
-
-MIKA includes a FastAPI backend with a TypeScript browser interface.
-
-The console supports:
-
-* evidence search
-* source browsing
-* source filtered search
-* case evidence search
-* case review
-* finding management
-* Markdown case reports
-* evaluation information
-
-Start it:
-
-```bash
-mika serve --host 127.0.0.1 --port 8000
-```
-
-Then open:
-
-```text
-http://127.0.0.1:8000
-```
-
-MIKA creates a fresh browser password when the server starts.
-
-Username:
-
-```text
-mika
-```
-
-The generated password is printed in the terminal.
-
-Stopping the process invalidates that session password.
-
-## Local web security
-
-The browser console is designed as a **single user local application**.
-
-It is not an internet facing web platform.
-
-Controls include:
-
-* loopback only binding
-* peer address checks
-* Host validation
-* Origin validation
-* Fetch Metadata checks
-* restricted HTTP methods
-* request size limits
-* rate and resource budgets
-* disabled public API documentation
-* disabled proxy header trust
-* disabled HTTP access logging
-* Content Security Policy
-* frame denial
-* no store caching
-* referrer restrictions
-* browser permissions policy
-* same origin resource policy
-
-Do not expose it using:
-
-```text
-Router port forwarding
-Public network interfaces
-Reverse proxies
-Public tunnels
-Internet facing hosts
-```
-
-If MIKA ever becomes a multi user or remotely hosted system, that should be treated as a separate security architecture.
-
-Not as a switch you turn on.
-
-## Public data connector
-
-MIKA includes a deliberately narrow connector for the official UK FCDO sanctions dataset.
-
-```bash
-mika fetch-uk-sanctions
-```
-
-The connector uses host and endpoint restrictions so it cannot quietly become a general purpose HTTP client.
-
-MIKA does not make sanctions, legal or compliance decisions.
-
-It gives an analyst evidence to review.
-
-## Evaluation
-
-MIKA includes a synthetic operational retrieval benchmark and regression suite.
-
-Metrics include:
-
-* Precision at k
-* Recall at k
-* Mean Reciprocal Rank
-* nDCG
-* bootstrap confidence intervals
-* latency percentiles
-
-### Published regression baseline
-
-| Check | Result |
-|:--|--:|
-| Python tests | **121 passing** |
-| Python branch coverage | **88%** |
-| Retrieval benchmark | **120 cases** |
-| Recall@5 | **1.000** |
-| MRR | **1.000** |
-| nDCG@5 | **1.000** |
-| Default deny authorization | **Pass** |
-| Unknown tool rejection | **Pass** |
-| Prompt injection quarantine | **Pass** |
-| Audit chain verification | **Pass** |
-| TypeScript typecheck | **Pass** |
-| TypeScript build | **Pass** |
-
-These figures are regression measurements from the bundled synthetic benchmark.
-
-They are there to catch engineering regressions.
-
-They are not a claim that MIKA achieves perfect accuracy on arbitrary real world investigations.
-
-Evaluation results and dataset fingerprints are stored in:
-
-```text
-reports/evaluation-results.json
-```
-
-## A simple MIKA workflow
-
-```text
-01  IMPORT
-        │
-        ▼
-    evidence enters MIKA
-
-02  VERIFY
-        │
-        ▼
-    provenance and trust checks
-
-03  SEARCH
-        │
-        ▼
-    lexical + semantic retrieval
-
-04  NARROW
-        │
-        ▼
-    choose approved evidence
-
-05  INVESTIGATE
-        │
-        ▼
-    entities, relationships, data quality
-
-06  BUILD CASE
-        │
-        ▼
-    evidence + findings + uncertainty
-
-07  ANALYSE
-        │
-        ▼
-    optional local model
-
-08  CHECK
-        │
-        ▼
-    citations + audit trail
-
-09  EXPORT
-        │
-        ▼
-    reviewable case report
-```
-
-## Installation
-
-### Requirements
-
-* Python 3.11+
-* Node.js and npm if rebuilding the browser interface
-* Ollama only if using local generated analysis
-
-Clone the project:
-
-```bash
-git clone https://github.com/RhainRK/MIKA.git
-cd MIKA
-```
-
-Create a virtual environment:
-
-```bash
 python -m venv .venv
-```
-
-### Windows PowerShell
-
-```powershell
-.\.venv\Scripts\Activate.ps1
-```
-
-### Linux and macOS
-
-```bash
-source .venv/bin/activate
-```
-
-Install MIKA:
-
-```bash
-python -m pip install --upgrade pip setuptools
-pip install -e ".[server]"
-```
-
-Check it:
-
-```bash
-mika --version
-mika doctor
-```
-
-Expected release:
-
-```text
-MIKA 1.6.0
-```
-
-## Build the dashboard
-
-```bash
-cd dashboard
-npm ci --ignore-scripts
-npm run typecheck
-npm run build
-cd ..
-```
-
-Run MIKA:
-
-```bash
-mika serve --host 127.0.0.1 --port 8000
-```
-
-## First five commands
-
-If you just cloned MIKA and want to see what it does:
-
-### 1. Import evidence
-
-```bash
-mika ingest samples/benchmark_evidence.txt
-```
-
-### 2. See registered sources
-
-```bash
-mika sources
-```
-
-### 3. Search
-
-```bash
-mika search "reconciliation anomaly"
-```
-
-### 4. Create a case
-
-```bash
-mika case-create "Operations Investigation"
-```
-
-### 5. Check the audit chain
-
-```bash
-mika audit-verify
-```
-
-That already gives you most of the core MIKA workflow.
-
-## Database backups
-
-Create a verified SQLite backup:
-
-```bash
-mika backup
-```
-
-Default location:
-
-```text
-data/backups/
-```
-
-MIKA verifies the SQLite snapshot before replacing the backup destination.
-
-## Database migrations
-
-MIKA tracks database schema versions.
-
-Supported older databases can be migrated while preserving existing:
-
-* evidence
-* cases
-* findings
-
-Back up the database before upgrading between releases.
-
-## Embeddings
-
-The basic MIKA install includes deterministic offline embedding behaviour.
-
-A trained semantic model is optional.
-
-For local semantic models:
-
-```bash
-pip install -e ".[semantic]"
-```
-
-Then point:
-
-```text
-MIKA_EMBEDDING_MODEL
-```
-
-to a trusted local model path.
-
-FTS5 and BM25 remain available without semantic embeddings.
-
-## Development
-
-Install development dependencies:
-
-```bash
-pip install -e ".[dev,server]"
-```
-
-Run tests:
-
-```bash
-pytest -q
-```
-
-Coverage:
-
-```bash
-pytest --cov=mika --cov-branch --cov-fail-under=82 -q
-```
-
-Linting:
-
-```bash
-ruff check .
-ruff format --check .
-```
-
-Typing:
-
-```bash
-mypy mika
-```
-
-Security checks:
-
-```bash
-bandit -r mika
-pip-audit
-npm audit --prefix dashboard
-```
-
-Release checks:
-
-```bash
-python scripts/release_check.py
-```
-
-Frontend:
-
-```bash
-npm run --prefix dashboard typecheck
-npm run --prefix dashboard build
-```
-
-CI runs the relevant formatting, typing, security, test and build checks automatically.
-
-Dependabot is configured for Python, npm and GitHub Actions dependencies.
-
-## Security philosophy
-
-MIKA is built around a few rules I try not to compromise on.
-
-```text
-Least privilege
-
-Explicit authorization
-
-Typed boundaries
-
-Evidence provenance
-
-Reviewable decisions
-
-Local operation by default
-
-The model is not the security boundary
-```
-
-Regression coverage includes scenarios involving:
-
-* implicit permission changes
-* unknown tool invocation
-* malformed tool arguments
-* filesystem traversal
-* SQLite modification attempts
-* prompt injection
-* quarantine bypass
-* audit log modification
-* connector host substitution
-* unauthorized HTTP requests
-
-More detail lives in:
-
-```text
-SECURITY.md
-SECURITY_REVIEW.md
-```
-
-## Known boundaries
-
-MIKA is still an engineering and research project.
-
-Things worth being clear about:
-
-* the browser authentication model is for local single user use
-* evidence databases are not application encrypted
-* someone with access to the operating system account may access local files
-* an administrator can access application state
-* malicious browser extensions can potentially access browser content
-* the audit chain is tamper evident rather than externally signed
-* prompt injection detection is heuristic
-* generated analysis still needs human review
-* CLI role selection is not operating system identity authentication
-* MIKA cannot control external software such as Ollama
-* dependency scanning does not replace keeping the operating system and runtime secure
-
-Do not put highly sensitive data into MIKA without first deciding whether the host machine and storage environment are appropriate for it.
-
-## Project structure
-
-```text
-MIKA/
-│
-├── dashboard/
-│   ├── src/
-│   ├── dist/
-│   └── package.json
-│
-├── data/
-│
-├── docs/
-│   └── adr/
-│
-├── mika/
-│   ├── connectors/
-│   ├── evaluation/
-│   ├── tools/
-│   ├── analyst.py
-│   ├── api.py
-│   ├── app.py
-│   ├── audit.py
-│   ├── cases.py
-│   ├── embeddings.py
-│   ├── entity_resolution.py
-│   ├── policy.py
-│   ├── provenance.py
-│   ├── relationships.py
-│   ├── retrieval.py
-│   ├── security.py
-│   ├── storage.py
-│   └── telemetry.py
-│
-├── benchmarks/
-├── reports/
-├── samples/
-├── scripts/
-├── tests/
-│
-├── CHANGELOG.md
-├── CONTRIBUTING.md
-├── SECURITY.md
-├── SECURITY_REVIEW.md
-├── WINDOWS_SETUP.md
-├── WINDOWS_UPGRADE.md
-└── pyproject.toml
-```
-
-## Documentation
-
-More detail is split into the project docs so this README does not have to explain every internal decision.
-
-| Document | What it covers |
-|:--|:--|
-| `docs/architecture.md` | System architecture |
-| `docs/evaluation.md` | Evaluation methodology |
-| `docs/case-study.md` | Example investigation workflow |
-| `docs/public-data.md` | Public data connector |
-| `docs/references.md` | Design references |
-| `docs/regression-baseline.md` | Benchmark baseline |
-| `SECURITY.md` | Security architecture |
-| `SECURITY_REVIEW.md` | Security review |
-| `WINDOWS_SETUP.md` | Windows installation |
-| `WINDOWS_UPGRADE.md` | Upgrade process |
-| `CHANGELOG.md` | Release history |
-| `CONTRIBUTING.md` | Development workflow |
-
-## Where I want to take it
-
-MIKA is already useful as a local investigation and assurance environment, but there is a lot more I want to explore.
-
-Some directions I am interested in:
-
-```text
-larger evidence collections
-
-better document ingestion
-
-richer investigation timelines
-
-contradiction detection
-
-evidence comparison
-
-stronger entity evaluation
-
-more deterministic analysis tools
-
-better retrieval benchmarks
-
-external audit anchoring
-
-stronger adversarial testing
-
-better analyst visualisation
-```
-
-Longer term I am also interested in what a separate multi user architecture could look like.
-
-That would need a proper security design of its own.
-
-I do not want to turn the local server into an internet service by slowly removing the restrictions that currently make it safe.
-
-## Design principle
-
-If I had to reduce MIKA to one idea, it would be this:
-
-```text
-Use AI for the part AI is good at.
-
-Do not make AI responsible for the parts that need to be trusted.
-```
-
-Retrieval should be measurable.
-
-Permissions should be explicit.
-
-Evidence should have provenance.
-
-Important actions should be auditable.
-
-Generated analysis should be reviewable.
-
-And the user should always be able to get back to the source.
-
-## License
-
-MIKA is released under the MIT License.
-
-See `LICENSE`.
-
-## Disclaimer
-
-MIKA is an engineering and research project for evidence analysis and AI assurance.
-
-It does not replace professional legal, compliance, financial, security or investigative judgement.
-
-Generated analysis, entity matches and automated findings should always be checked against the underlying evidence before decisions are made.
-
-<div align="center">
-
-### MIKA v1.6.0
-
-**Evidence first. Models second.**
-
-[github.com/RhainRK/MIKA](https://github.com/RhainRK/MIKA)
-
-</div>
+.venv/Scripts/pip install -e ".[server]"        # macOS/Linux: .venv/bin/pip
+1. Import your portfolio. Export your holdings as a CSV:
+
+issuer,identifier,market_value_usd
+Apple Inc.,HWUPKR0MPOU8FGXBT394,1250000
+Example Shipping Group,,400000
+The identifier column is optional. It can be an LEI (MIKA checks its ISO 17442 check digits), a ticker or an ISIN.
+
+mika portfolio import my-portfolio.csv
+2. Choose which sources may see your holdings. Copy .env.example to .env, then for example:
+
+MIKA_ONLINE_SOURCES=gleif,sec,gdelt
+MIKA_CONTACT_EMAIL=you@example.com      # the SEC asks for a contact address
+3. Run it, then open the dashboard.
+
+mika monitor                                     # one run
+mika watch --every 6h                            # or keep watching
+mika serve                                       # prints a one-time password
+Open http://127.0.0.1:8000 and sign in as mika. Windows step-by-step instructions are in WINDOWS_SETUP.md.
+
+Commands
+Command	What it does
+mika portfolio import FILE	Loads your holdings and reports any rows it skipped and why.
+mika monitor [--offline]	Refreshes the lists, looks up your holdings, screens them, collects signals and records the run.
+mika watch --every 6h	Runs the monitor on a schedule (15 minutes to 7 days). A failed run is reported and retried.
+mika changes	Shows what changed since the previous run.
+mika whatif "A" ["B" ...]	Screens the portfolio as if those parties were sanctioned.
+mika check "Company" [--identifier LEI]	Screens one company before you buy it.
+mika feeds check	Confirms each enabled source is reachable.
+mika serve	Starts the local dashboard.
+mika audit-verify	Checks that the audit chain has not been edited.
+Signals: news, SEC filings and posts ranked by risk, each listing the words that flagged it
+
+Data sources
+Source	Used for	Needs	Limits MIKA enforces	Terms
+OFAC SDN list	Sanctions	nothing	follows only OFAC's signed S3 redirect	US Government, public domain
+UK Sanctions List	Sanctions	nothing	120 MB cap, streamed	Open Government Licence v3.0 (attribution shown)
+GLEIF	LEIs and parent companies	gleif enabled	about 1 request/s, 7-day cache	CC0; no implied endorsement
+SEC EDGAR	Tickers and 8-K filings	sec enabled and a contact email	fewer than 10 requests/s	SEC fair-access policy
+GDELT	News	gdelt enabled	1 request per 5.5 s	Free with citation (shown)
+Reddit	Posts	reddit enabled, an approved app	1 request/s, no authors stored, 48 h retention	Reddit Data API terms; approval required
+X	Posts	x enabled and a bearer token	per-run post budget, no authors stored, 48 h retention	Pay per post read
+Downloading a public sanctions list reveals nothing about you, so those downloads always run. Every other source would learn which companies you hold, so each one stays off until you list it. The API details behind these choices were checked against each provider's documentation and live responses, and are written up in docs/research/real-data-sources.md.
+
+How it works
+flowchart LR
+    P[Your holdings CSV] --> E[Enrich<br/>LEI, parents, tickers]
+    G[GLEIF] -. opt-in .-> E
+    S1[SEC EDGAR] -. opt-in .-> E
+    O[OFAC SDN] --> W[Watchlist<br/>merged, versioned]
+    U[UK list] --> W
+    E --> R[Screen<br/>names + 50% rule]
+    W --> R
+    R --> REP[Exposure report]
+    R --> H[Run history<br/>changes since last run]
+    R --> C[Cases citing source rows]
+    N[GDELT news] -. opt-in .-> SIG[Signals<br/>relevance + risk categories]
+    F[SEC 8-K] -. opt-in .-> SIG
+    RD[Reddit / X] -. opt-in .-> SIG
+    R -- flagged holdings first --> SIG
+    SIG --> REP
+    REP --> L[Audit chain]
+Every request goes through one gate. A single HTTP client does all outbound traffic. It only talks to each source's allowlisted hosts over HTTPS and refuses redirects to any host the source hasn't declared. It caps response size, including after decompression, and spaces requests to respect rate limits. Its errors never include response bodies, since those can contain tokens.
+Name matching built for sanctions data. Names are Unicode-normalised and stripped of legal suffixes like "LLC" and "PLC". Words are compared with Jaro-Winkler similarity, which copes with different transliterations, and reversed name order is recognised. Candidates are ranked by how rare their shared words are, which keeps the screen fast at scale.
+Honest ownership. GLEIF records which company consolidates which. That shows control, not a percentage. MIKA labels those links "controlled by a blocked parent through accounting consolidation (ownership % not disclosed)" instead of inventing a number. You can add exact stakes in data/ownership-overrides.csv using the company names you already use.
+Scenarios reuse the real engine. A what-if is a copy of the list with your hypothetical entries added, screened by the same code as a real run. There is no second rulebook to drift out of sync.
+Relevance before risk. A social post must name the company in full, use a multi-word name or use a $TICKER cashtag, so "apple tree" never counts as Apple Inc. News queries use the exact legal name as a phrase, and filings are matched by the company's SEC ID.
+Results
+Measured on this build (Python 3.13, Windows 11). The screening scenarios are synthetic. They prove the rules behave correctly; they don't measure real-world accuracy.
+
+What is measured	Result
+Live OFAC sync (SDN and alias files, via the signed redirect)	19,483 entries in 5.7 s
+Live GLEIF enrichment	Apple Inc. resolved by name; a subsidiary traced to its parent
+Live GDELT query	25 articles parsed and classified
+Labelled screening scenarios (aliases, transliterations, 1 to 3-company chains, aggregation, the exact 50% boundary, a 49.9% near-miss, ownership loops)	30 / 30; blocked precision and recall 1.00
+Screening at scale: 50,000 entities and 63,925 ownership links	2.3 to 5.0 s end to end (same laptop, idle vs. busy)
+Python tests / branch coverage	244 passed / 90%
+Browser smoke test: 5 views, 2 themes, 2 widths, plus 8 edge cases including the changes panel, a hostile link and injection text	28 / 28, no console errors
+Engineering notes
+A few things that went wrong along the way, and what they taught me.
+
+GLEIF's full-text search ranks badly. Apple Inc. isn't in its top 10 full-text results. MIKA now searches by legal name first and only accepts an exact normalised match. A live test caught this, not a unit test.
+The UK list outgrew the downloader. It is now about 50 MB with one row per name and address. The old 25 MiB cap failed silently, so the new parser streams the file and groups rows by ID. It also drops aliases that OFSI marks as low quality, as OFSI advises.
+A rate limit broke page loads. Splitting the dashboard into ES modules meant about 24 requests per page load, and two quick reloads used up the API budget. Static files are now exempt from that budget (they still need a login), and the browser smoke test guards it.
+The first run reported everything as new. With no earlier run to compare against, every holding looked "new". A first run now reports no changes, and a test pins that.
+Reproducibility. One test runs entity resolution under six different hash seeds, after a tie in candidate ranking turned out to depend on Python's string hashing.
+Where it came from
+MIKA started as a local evidence engine: search over your own documents, with every answer cited back to its source and every action written to a tamper-evident log. That part is still here (the Evidence and Cases pages). Version 2.0 pointed it at a concrete problem, sanctions exposure in a portfolio, where citing your sources is a requirement and not a nice extra. Version 2.1 swapped the sample data for real lists, real company data and real news. Version 2.2 made it watch over time and answer "what if".
+
+Security and privacy
+Local web console. Only reachable from this machine. It uses a fresh password every time it starts, has a strict Content Security Policy and a read-only API, and only ever reports whether credentials are set, never what they are.
+Untrusted text. Text from news and social posts is never treated as instructions. It is scored for prompt injection, shown as plain text, and only http(s) URLs become links.
+Secrets. Credentials come from .env, are typed as secrets, and never reach logs, the audit chain, reports or the browser.
+See SECURITY.md for the full model and how to report a vulnerability.
+
+Notices
+Not advice. MIKA's output is a lead for a qualified person to review. It is not legal, compliance or investment advice, and a Clear result is not a guarantee.
+No affiliation. MIKA is an independent project. It is not affiliated with or endorsed by OFAC, the FCDO, GLEIF, the SEC, GDELT, Reddit or X. Data terms and the required attributions are in NOTICE.md.
+Fictional test data. Everything under tests/fixtures/ is made up. No real person or organisation is shown as sanctioned.
+Repository layout
+mika/connectors/   the single allowlisted HTTP client and provenance snapshots
+mika/sanctions/    OFAC and UK list parsers and sync
+mika/portfolio/    holdings import, LEI validation, GLEIF and SEC enrichment
+mika/screening/    matching engine, 50% rule propagation, what-if scenarios, evaluation
+mika/signals/      GDELT, SEC 8-K, Reddit and X connectors, relevance, classifier, store
+mika/              monitor pipeline, run history, evidence store, cases, audit, API, CLI
+dashboard/         strict TypeScript ES modules (no framework, no external scripts)
+tests/             pytest suite; fixtures hold the fictional regression data
+scripts/           browser smoke test, scale-data generator, release checks
+docs/              design notes, ADRs, research, screening rules
+Limitations
+GLEIF parent links show control, not percentages. Exact stakes need your own data or a licensed ownership dataset.
+Owners missing from the data are invisible to the screen, and to a what-if.
+News and social relevance is a heuristic. A possible match is a lead, not a finding.
+MIKA is built for one person on one machine. Evidence, caches and backups are not encrypted at rest.
+License
+MIT. See LICENSE.
